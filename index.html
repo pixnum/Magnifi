@@ -3,67 +3,82 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Magnifi - Magnifying Glass Camera</title>
+<title>Magnifi</title>
 <style>
-  body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #111;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    color: #fff;
-    overflow: hidden;
-  }
-  h1 { margin: 10px 0; text-align:center; }
-  #cameraContainer {
-    position: relative;
-    width: 90%;
-    max-width: 600px;
-    border-radius: 20px;
-    overflow: hidden;
-    touch-action: none;
-  }
-  video { width: 100%; display: block; filter: brightness(1); }
-  #magnifier {
-    position: absolute;
-    border: 4px solid #fff;
-    border-radius: 50%;
-    width: 150px;
-    height: 150px;
-    overflow: hidden;
-    pointer-events: none;
-    box-shadow: 0 0 15px rgba(255,255,255,0.5);
-    display: none;
-  }
-  #magnifier video {
-    position: absolute;
-    transform-origin: top left;
-  }
-  #controls {
-    margin-top: 15px;
-    display: flex;
-    gap: 10px;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-  button, input[type="range"] {
-    padding: 8px 15px;
-    font-size: 16px;
-    border-radius: 10px;
-    border: none;
-    cursor: pointer;
-  }
-  button { background: #333; color: #fff; transition: 0.2s; }
-  button:hover { background: #555; }
-  button.active { background: #6c5ce7; }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #111;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: #fff;
+  overflow: hidden;
+}
+h1 { margin: 10px 0; text-align:center; }
+#cameraContainer {
+  position: relative;
+  width: 100%;
+  height: 75vh;
+  overflow: hidden;
+  background: #000;
+  touch-action: none;
+}
+video { width: 100%; height: 100%; object-fit: cover; }
+
+#magnifier {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 4px solid #fff;
+  overflow: hidden;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 20px rgba(255,255,255,0.7);
+  pointer-events: none;
+}
+
+#magnifier video {
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: top left;
+  transform: scale(1) translate(0px,0px);
+}
+
+#controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+button, input[type="range"] {
+  padding: 8px 15px;
+  font-size: 16px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+}
+
+button { background: #333; color: #fff; transition: 0.2s; }
+button:hover { background: #555; }
+button.active { background: #6c5ce7; }
+
+footer {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #aaa;
+}
 </style>
 </head>
 <body>
 
 <h1>Magnifi</h1>
+
 <div id="cameraContainer">
   <video id="camera" autoplay playsinline></video>
   <div id="magnifier">
@@ -72,34 +87,40 @@
 </div>
 
 <div id="controls">
-  <button id="zoomIn">Zoom +</button>
-  <button id="zoomOut">Zoom -</button>
-  <input type="range" id="zoomSlider" min="1" max="5" step="0.01" value="2">
+  <input type="range" id="zoomSlider" min="1" max="500" step="1" value="1">
   <button id="flashToggle">Flashlight 🔦</button>
+  <button id="snapshotBtn">📸 Capture</button>
+  <button id="freezeBtn">⏸ Freeze</button>
 </div>
+
+<footer>© Manik Roy 2025</footer>
 
 <script>
 const video = document.getElementById('camera');
 const magnifier = document.getElementById('magnifier');
 const magnifierVideo = document.getElementById('magnifierVideo');
-const zoomInBtn = document.getElementById('zoomIn');
-const zoomOutBtn = document.getElementById('zoomOut');
 const zoomSlider = document.getElementById('zoomSlider');
 const flashToggle = document.getElementById('flashToggle');
+const snapshotBtn = document.getElementById('snapshotBtn');
+const freezeBtn = document.getElementById('freezeBtn');
 
 let stream, track, torchOn = false;
-let zoomLevel = 2;
+let zoomLevel = 1;
+let magX = 0, magY = 0;
+let magnifierSize = 200;
+let frozen = false;
+let freezeCanvas, freezeCtx;
 
-// Get rear camera if available
+// Get rear camera
 async function getRearCamera() {
   const devices = await navigator.mediaDevices.enumerateDevices();
   const videoDevices = devices.filter(d => d.kind === 'videoinput');
   let rear = videoDevices.find(d => d.label.toLowerCase().includes('back'));
-  if (!rear) rear = videoDevices[0]; // fallback
+  if (!rear) rear = videoDevices[0];
   return rear.deviceId;
 }
 
-// Start camera with rear preference
+// Start camera
 async function startCamera() {
   try {
     const deviceId = await getRearCamera();
@@ -113,17 +134,13 @@ async function startCamera() {
   }
 }
 
-// Auto-request camera on load
 window.addEventListener('load', () => startCamera());
 
-// Zoom function (CSS + hardware if supported)
+// Real-time zoom
 function updateZoom(value) {
   zoomLevel = parseFloat(value);
-  // Magnifier lens CSS zoom
-  magnifierVideo.style.transform = `scale(${zoomLevel}) translate(${-magnifier.offsetLeft}px, ${-magnifier.offsetTop}px)`;
-  zoomSlider.value = zoomLevel;
+  if(!frozen) magnifierVideo.style.transform = `scale(${zoomLevel}) translate(${-magX}px, ${-magY}px)`;
 
-  // Optional hardware zoom
   if (track) {
     const capabilities = track.getCapabilities();
     if (capabilities.zoom) {
@@ -132,9 +149,6 @@ function updateZoom(value) {
     }
   }
 }
-
-zoomInBtn.addEventListener('click', () => updateZoom(Math.min(zoomLevel + 0.2, 5)));
-zoomOutBtn.addEventListener('click', () => updateZoom(Math.max(zoomLevel - 0.2, 1)));
 zoomSlider.addEventListener('input', e => updateZoom(e.target.value));
 
 // Flashlight toggle
@@ -147,24 +161,92 @@ flashToggle.addEventListener('click', async () => {
   flashToggle.classList.toggle('active', torchOn);
 });
 
-// Magnifier movement
+// Move magnifier
 const container = document.getElementById('cameraContainer');
 function moveMagnifier(x, y) {
   const rect = container.getBoundingClientRect();
-  let mx = x - rect.left - magnifier.offsetWidth / 2;
-  let my = y - rect.top - magnifier.offsetHeight / 2;
-  if (mx < 0) mx = 0; if (my < 0) my = 0;
-  if (mx > rect.width - magnifier.offsetWidth) mx = rect.width - magnifier.offsetWidth;
-  if (my > rect.height - magnifier.offsetHeight) my = rect.height - magnifier.offsetHeight;
-  magnifier.style.left = mx + 'px';
-  magnifier.style.top = my + 'px';
-  magnifierVideo.style.transform = `scale(${zoomLevel}) translate(${-mx}px, ${-my}px)`;
+  magX = x - rect.left - magnifier.offsetWidth / 2;
+  magY = y - rect.top - magnifier.offsetHeight / 2;
+
+  if (magX < 0) magX = 0; 
+  if (magY < 0) magY = 0;
+  if (magX > rect.width - magnifier.offsetWidth) magX = rect.width - magnifier.offsetWidth;
+  if (magY > rect.height - magnifier.offsetHeight) magY = rect.height - magnifier.offsetHeight;
+
+  magnifier.style.left = magX + magnifier.offsetWidth/2 + 'px';
+  magnifier.style.top = magY + magnifier.offsetHeight/2 + 'px';
+
+  if(!frozen)
+    magnifierVideo.style.transform = `scale(${zoomLevel}) translate(${-magX}px, ${-magY}px)`;
 }
 
-container.addEventListener('mousemove', e => { magnifier.style.display = 'block'; moveMagnifier(e.clientX, e.clientY); });
-container.addEventListener('touchmove', e => { e.preventDefault(); magnifier.style.display='block'; moveMagnifier(e.touches[0].clientX, e.touches[0].clientY); });
-container.addEventListener('mouseleave', () => magnifier.style.display = 'none');
-container.addEventListener('touchend', () => magnifier.style.display = 'none');
+container.addEventListener('mousemove', e => moveMagnifier(e.clientX, e.clientY));
+container.addEventListener('touchmove', e => {
+  e.preventDefault();
+  moveMagnifier(e.touches[0].clientX, e.touches[0].clientY);
+});
+
+// Pinch/scroll to resize magnifier
+let lastDistance = null;
+container.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    const d = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    if (lastDistance) {
+      let delta = d - lastDistance;
+      magnifierSize = Math.min(Math.max(100, magnifierSize + delta), 400);
+      magnifier.style.width = magnifier.style.height = magnifierSize + 'px';
+    }
+    lastDistance = d;
+  }
+});
+container.addEventListener('touchend', e => { if(e.touches.length < 2) lastDistance=null; });
+container.addEventListener('wheel', e => {
+  magnifierSize = Math.min(Math.max(100, magnifierSize + e.deltaY* -0.5), 400);
+  magnifier.style.width = magnifier.style.height = magnifierSize + 'px';
+});
+
+// Snapshot capture
+snapshotBtn.addEventListener('click', () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = magnifierSize;
+  canvas.height = magnifierSize;
+  const ctx = canvas.getContext('2d');
+  const rect = magnifier.getBoundingClientRect();
+  const videoRect = video.getBoundingClientRect();
+  const sx = (rect.left - videoRect.left) * (video.videoWidth / videoRect.width);
+  const sy = (rect.top - videoRect.top) * (video.videoHeight / videoRect.height);
+  const sWidth = magnifierSize * (video.videoWidth / videoRect.width) / zoomLevel;
+  const sHeight = magnifierSize * (video.videoHeight / videoRect.height) / zoomLevel;
+
+  ctx.drawImage(video, sx, sy, sWidth, sHeight, 0, 0, magnifierSize, magnifierSize);
+  const link = document.createElement('a');
+  link.href = canvas.toDataURL('image/png');
+  link.download = 'magnifier_snapshot.png';
+  link.click();
+});
+
+// Freeze frame toggle
+freezeBtn.addEventListener('click', () => {
+  if(!frozen){
+    freezeCanvas = document.createElement('canvas');
+    freezeCanvas.width = magnifierVideo.videoWidth;
+    freezeCanvas.height = magnifierVideo.videoHeight;
+    freezeCtx = freezeCanvas.getContext('2d');
+    freezeCtx.drawImage(magnifierVideo, 0,0, freezeCanvas.width, freezeCanvas.height);
+    magnifierVideo.srcObject = null;
+    magnifierVideo.src = freezeCanvas.toDataURL();
+    frozen = true;
+    freezeBtn.textContent = "▶ Live";
+  } else {
+    magnifierVideo.srcObject = stream;
+    frozen = false;
+    freezeBtn.textContent = "⏸ Freeze";
+    updateZoom(zoomLevel);
+  }
+});
 </script>
 
 </body>
