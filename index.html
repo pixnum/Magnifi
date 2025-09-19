@@ -86,6 +86,7 @@ const zoomInBtn = document.getElementById('zoomIn');
 const zoomOutBtn = document.getElementById('zoomOut');
 const zoomSlider = document.getElementById('zoomSlider');
 const flashToggle = document.getElementById('flashToggle');
+
 let stream, track, torchOn = false;
 let zoomLevel = 2;
 
@@ -115,12 +116,23 @@ async function startCamera() {
 // Auto-request camera on load
 window.addEventListener('load', () => startCamera());
 
-// Zoom controls
+// Zoom function (CSS + hardware if supported)
 function updateZoom(value) {
   zoomLevel = parseFloat(value);
-  magnifierVideo.style.transform = `scale(${zoomLevel}) translate(0,0)`;
+  // Magnifier lens CSS zoom
+  magnifierVideo.style.transform = `scale(${zoomLevel}) translate(${-magnifier.offsetLeft}px, ${-magnifier.offsetTop}px)`;
   zoomSlider.value = zoomLevel;
+
+  // Optional hardware zoom
+  if (track) {
+    const capabilities = track.getCapabilities();
+    if (capabilities.zoom) {
+      const z = Math.min(Math.max(zoomLevel, capabilities.zoom.min), capabilities.zoom.max);
+      track.applyConstraints({ advanced: [{ zoom: z }] });
+    }
+  }
 }
+
 zoomInBtn.addEventListener('click', () => updateZoom(Math.min(zoomLevel + 0.2, 5)));
 zoomOutBtn.addEventListener('click', () => updateZoom(Math.max(zoomLevel - 0.2, 1)));
 zoomSlider.addEventListener('input', e => updateZoom(e.target.value));
